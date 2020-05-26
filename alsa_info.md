@@ -1,0 +1,740 @@
+# ALSA
+
+---
+For ayone interested in ALSA kernel development...
+![This is not the presentation you are looking for](./obi_wan.jpg)   <!-- .element: class="fragment" data-fragment-index="1" -->
+
+|||
+Userspace ALSA
+* What?
+* Why?
+* Configuration files
+  * Link with alsa-lib
+* Examples using alsa-lib
+
+---
+## What?
+* Advanced Linux Sound Architecture
+* Software framework that provides a generic API for sound card device drivers
+* Replacement for Open Sound System (OSS)
+
+|||
+## What?
+* ALSA fixed some shortcomings of OSS at the time
+  * Simultanous access to sound device was not supported in OSS
+  * user-space operations
+    * Mixing
+    * Loopback/snooping
+    * Support for non-interleaved interfaces
+* Main reason was OSS moved to a proprietary license
+  * Moved back to GPL in 2007
+  * Kernel: Once you go ALSA, you never go back   <!-- .element: class="fragment" data-fragment-index="1" -->
+
+|||
+## What?
+* Automatic configuration of sound devices
+  * Through the infamous /usr/share/alsa/cards/*.conf
+  * Modularized sound drivers
+  * Thread-safe* design
+  * User space library (alsa-lib) to simplify programming
+    * This is the one we will be using today
+  * Backwards compatibility layer with OSS
+
+|||
+## History
+* Started in 1998
+* Developed separately from the Linux Kernel
+* Introduced in v2.5 in 2002
+  * OSS declared deprecated
+* Replaced OSS completely in v2.6
+  * There is however still a compatibility layer in ALSA
+  * But as you might have guessed, nobody uses it (anymore)
+* OSS is still being developed though!
+  * Targetting Linux and FreeBSD
+
+|||
+## Who uses it?
+  * Linux Sound Servers
+    * PulseAudio
+    * Jack
+  * PortAudio
+    * Backbone of Audacity
+
+---
+# Why?
+
+Why use ALSA/OSS/sound server over ALSA/OSS/sound server?
+
+|||
+## Why you should use ALSA over OSS
+  * Only use OSS if you just woke up from a 20 year nap and use kernel v2.4
+  * More support for ALSA/better supported in Linux
+
+|||
+## Why you should use ALSA over a sound server
+* Direct/Full control
+  * Can also be a disadvantage
+   * You are responsible for xrun recovery
+   * You are responsible for ALSA quirks
+* Minimal performance overhead
+  * Less latency?
+    * Not true with JACK
+    * But JACK does take more CPU cycles
+* Mixing built-in through plugins
+    * dmix, dsnoop, asym
+	* See https://alsa.opensrc.org/AlsaSharing
+	* Don't know about the latency impact of this though...
+
+But it's still a lot of hassle   <!-- .element: class="fragment" data-fragment-index="1" -->
+
+|||
+## Why you should use a sound server over ALSA
+* Takes care of all the hassle
+* Multiple programs accessing same device
+* Mixing streams
+* Separate stream volume control
+* Redirecting streams
+* Changing settings on the fly
+  * sample format
+  * channel count
+
+|||
+## Why use X over ALSA
+ALSA documentation is horrible
+  * Samples/bytes/frames used interchangebly
+    * Even though they aren't!!!
+  * Incorrect for some features
+    * Asynchronous mode
+      * SND_PCM_ASYNC in snd_pcm_open()
+  * Job protection?  <!-- .element: class="fragment" data-fragment-index="1" -->
+
+---
+## Internals
+
+|||
+### Main configuration
+* Default config
+  * /usr/share/alsa/alsa.conf
+  * Not meant to be changed
+  * Normally, just defines default devices without any plugins
+* System wide specific configuration
+  * /etc/asoundrc
+* User specific configuration
+  * ~/.asoundrc
+* All config files are parsed every time an ALSA device is opened
+  * No restart necessary for changes to take effect!
+
+|||
+### Configuration
+Alsa uses *.conf files to configure sound devices
+* Located in /usr/share/alsa/cards
+* Organized in a hierarchical fashion
+  * Cards
+    * A physical card or logical kernel device capable of input and/or output
+  * Devices
+    * A card can have several devices
+	* Can be operated independently from each other
+  * Subdevices
+    * A sound endpoint for the device
+	* F.e. Left and right channel can be separate subdevices
+
+|||
+### Configuration Pitfalls
+* Device can have separate subdevice for left or right channel
+  * Can be controlled separately in principle...
+  * In practice, writing/reading from a subdevice locks the other subdevices
+* Application selects audio device using a device string
+  * Device string is the 'absolute' path of the device
+    * card,device[subdevice]
+  * aplay utility can list all pcm devices
+    * aplay -l
+
+|||
+### Configuration
+Each card sets one/multiple interfaces which determine what ALSA API can be used.
+* pcm
+  * PCM interface
+  * snd_pcm_* API
+  * API used to read/write audio data to a device
+* ctl
+  * Control interface
+  * snd_ctl_* API
+    * snd_ctl_get_dB_range, set/get parameters from ALSA driver, ...
+  * Transfer data in Type/Length/Value(TLV)-way to ALSA driver from userspace
+  * Fun fact: No limitation on size of data
+    * Abused for I/O operations
+
+|||
+More and more interfaces...
+* amixer
+  * Simple mixer interface
+  * snd_mixer_* API
+  * Setting volume, ...
+* amidi
+* seq
+* hwdep
+* rawmidi
+* ...
+
+|||
+### Configuration
+* User can hook in ALSA plugins to a device
+  * Conceptually, an ALSA device is a wrapper for its plugins
+  * We built our usecase in the config files
+
+|||
+### PCM Configuration
+The 'type' field determines which plugin is loaded for this PCM device.
+* hw
+* plug
+* shm
+* dmix
+* dsnoop
+* asym
+* softvol
+  * If sound card does not support volume control by HW
+  * Add pure SW volume control for a device
+* ...
+
+See https://www.alsa-project.org/alsa-doc/alsa-lib/pcm_plugins.html for a full list.
+
+|||
+### PCM Configuration
+#### hw type
+  * Direct access to the kernel device
+  * No software mixing or stream adaptation support
+  * Minimal latency
+  * PCM parameter that is not supported by HW?
+    * Error is returned
+
+|||
+### PCM Configuration
+#### plug type
+  * "Plug-and-play"
+    * Performs channel duplication, resampling, ...
+  * PCM parameter that is not supported by HW?
+    * No error returned
+  * Not something you want if latency is critical
+
+|||
+#### Config file example
+What does this say?
+
+```bash
+# My awesome PCM device
+pcm.plug0 {
+  type plug
+  slave {
+    pcm "hw:0,0"
+  }
+}
+```
+
+|||
+#### Config file example
+```bash [2]
+# My awesome PCM device
+pcm.plug0 {
+  type plug
+  slave {
+    pcm "hw:0,0"
+  }
+}
+```
+
+ALSA PCM device with name 'plug0'
+  * Determines which API we can use to open the device in alsa-lib
+  * In this case : PCM
+
+|||
+#### Config file example
+```bash [3]
+# My awesome PCM device
+pcm.plug0 {
+  type plug
+  slave {
+    pcm "hw:0,0"
+  }
+}
+```
+Load the plug plugin
+  * Handles data output to this device
+  * Does automatic sample rate conversion if needed
+  * Plugins need a slave device!
+
+|||
+#### Config file example
+```bash [4-6]
+# My awesome PCM device
+pcm.plug0 {
+  type plug
+  slave {
+    pcm "hw:0,0"
+  }
+}
+```
+
+This PCM device is for your first sound card (0) and first device (0)
+
+|||
+ALSA leaves some freedom on how to write the configuration files
+```
+pcm_slave.slave0 {
+    pcm "hw:0,0"
+}
+
+pcm.plug0 {
+  type plug
+  slave slave0
+}
+```
+
+|||
+```[3,4]
+pcm_slave.slave0 {
+    pcm "hw:0,0"
+    channels 6
+    rate 96000
+}
+
+pcm.plug0 {
+  type plug
+  slave slave0
+}
+```
+Here we restrict the device's hardware parameter space
+  * Play on 6 channels
+  * Set the samplerate to 96kHz
+
+Important: Anything that can be set through the ALSA PCM API can be set in the config file!
+
+|||
+### ALSA mysteries
+
+#### My latency is too high
+
+* Check which card.conf is being loaded   <!-- .element: class="fragment" data-fragment-index="1" -->
+  * strace is your friend and wants to help you... unlike ALSA
+* Check if some parameters are being set statically    <!-- .element: class="fragment" data-fragment-index="2" -->
+  * Period size
+  * Buffer size
+  * ...
+
+|||
+## Some interesting stuff
+Exlamation sign causes previous definition to be overridden
+```
+pcm.!default { type hw card 0 }
+```
+
+Can also use:
+* ?: assign if not already assigned (so do not override)
+* +: create new parameter when necessary
+  * Default behaviour and therefore useless
+* -: Cause error when trying to assign a parameter which did not previously exist
+
+|||
+## More interesting stuff
+
+Functions in the configuration
+ * Modify configuration at runtime
+   * f.e. through env-variable
+
+```
+pcm.!default {
+    type plug
+    slave.pcm {
+        @func getenv
+        vars [ ALSAPCM ]
+        default "hw:myAwesomeAudioDevice"
+    }
+}
+```
+
+Good luck with that...    <!-- .element: class="fragment" data-fragment-index="1" -->
+
+
+
+|||
+## More more interesting stuff
+Hook functions to configure device when device is opened
+* setting volume to 0
+* ...
+
+Good luck with that...    <!-- .element: class="fragment" data-fragment-index="1" -->
+
+---
+## PCM
+Digitized sound
+* Samplerate
+* Channels
+* Sample format
+
+Not as easy as just setting them one by one   <!-- .element: class="fragment" data-fragment-index="1" -->
+
+|||
+## PCM configuration
+
+* Constructs a configuration space
+* PCM parameters are not independent from each other for some sound cards
+  * Cannot combine all sample formats with all sampling rates or channel counts
+
+|||
+## PCM configuration
+
+* ALSA constructs an n-dimensional space to limit possible combinations
+  * Samplerate dimension
+  * Channel dimension
+  * Sample format dimension
+  * ...
+* Therefore, In ALSA API, we set a minimum samplerate
+  * snd_pcm_hw_params_set_rate_near(), snd_pcm_hw_params_set_channels_near(), ...
+  * This narrows down the possible channels, sample format, ...
+  * So order of configuration is important!
+    * Order of parameters determines the parameters selected
+
+|||
+## PCM configuration
+
+Ok, but how do I know what params are actually set?!
+
+* printf
+* /proc/asound/card#/pcm#/sub#/hw_params
+* aplay -v
+
+---
+## Simple usecase
+1 device recording and playing
+
+|||
+## Several ways to tackle this
+* Blocking
+* Non-blocking
+* Asynchronous
+* Polling
+
+|||
+#### Blocking
+* one thread per device
+  * capture and playback are two separate devices!
+* Results in two threads
+
+|||
+#### Blocking
+
+```c
+#define AUDIO_SAMPLERATE           16000
+
+#define AUDIO_NR_OF_SAMPLES        128u
+#define AUDIO_BYTES_PER_SAMPLE     2u
+#define AUDIO_OUTPUT_NR_CHANNELS   2u
+#define SAMPLE_BUFFER_SIZE         (AUDIO_NR_OF_SAMPLES * AUDIO_OUTPUT_NR_CHANNELS * AUDIO_BYTES_PER_SAMPLE)
+
+int main(int argc, char **argv)
+{
+    snd_pcm_t *handle = NULL;
+    int period_size = 0;
+    int period_time = 0;
+    char my_samples[SAMPLE_BUFFER_SIZE];
+
+    snd_pcm_open(&handle, "default:CARD=MyAwesomeAudioCard", SND_PCM_STREAM_PLAYBACK, 0);
+
+    snd_pcm_hw_params_t *hw_params;
+    snd_pcm_hw_params_alloca(&hw_params);
+    snd_pcm_hw_params_current(handle, hw_params);
+
+    snd_pcm_hw_params_set_access(handle, hw_params, SND_MODE_INTERLEAVED);
+    snd_pcm_hw_params_set_format(handle, hw_params, SND_PCM_FORMAT_U16);
+    snd_pcm_hw_params_set_rate_near(handle, hw_params, AUDIO_SAMPLERATE);
+
+    snd_pcm_hw_params(handle, hw_params);
+
+    snd_pcm_hw_params_get_period_size(params, period_size, 0);
+    snd_pcm_hw_params_get_period_time(params, period_time, NULL);
+
+
+    snd_pcm_sw_params_t *sw_params = NULL;
+    snd_pcm_sw_params_malloc(&sw_params);
+    snd_pcm_sw_params_current(handle, sw_params); // AFTER hw params!
+
+    snd_pcm_sw_params_set_start_threshold(handle, sw_params, AUDIO_NR_OF_SAMPLES);
+
+    snd_pcm_sw_params(handle, sw_params);
+
+    // DUMP SETTINGS
+    snd_output_t *output = NULL;
+    snd_output_stdio_attach(&output, stdout, 0);
+    snd_pcm_dump(handle, output);
+
+    // Prepare codec for output
+    snd_pcm_drop(handle); // Just to be sure...
+    snd_pcm_prepare(handle);
+
+    // ALSA gods demand their buffers to be prefilled with 2 period sizes!
+    snd_pcm_writei(handle, my_samples, AUDIO_NR_OF_SAMPLES);
+    snd_pcm_writei(handle, my_samples, AUDIO_NR_OF_SAMPLES);
+
+    // Codec is started after this
+    snd_pcm_state(handle) == SND_PCM_STATE_RUNNING;
+
+    // Do our thing...
+    while(1) {
+        int error = snd_pcm_writei(handle, my_samples, AUDIO_NR_OF_SAMPLES);
+        if (error < 0) {
+            // xrun recovery
+			int recover = snd_pcm_recover(handle, error, 1);
+			if (recover < 0) {
+			    // all hope is lost....
+			}
+			// After recovery, need to prefill codec again!
+            snd_pcm_writei(handle, my_samples, AUDIO_NR_OF_SAMPLES);
+            snd_pcm_writei(handle, my_samples, AUDIO_NR_OF_SAMPLES);
+        }
+    }
+}
+```
+
+|||
+#### Non-Blocking
+
+* Same as blocking
+* Functions return new error codes
+  * -EBUSY when resource is unavailable
+    * aka you did something fishy...
+  * -EAGAIN if buffers are full
+
+|||
+#### Non-Blocking
+```c
+#define AUDIO_SAMPLERATE           16000
+
+#define AUDIO_NR_OF_SAMPLES        128u
+#define AUDIO_BYTES_PER_SAMPLE     2u
+#define AUDIO_OUTPUT_NR_CHANNELS   2u
+#define SAMPLE_BUFFER_SIZE         (AUDIO_NR_OF_SAMPLES * AUDIO_OUTPUT_NR_CHANNELS * AUDIO_BYTES_PER_SAMPLE)
+
+int main(int argc, char **argv)
+{
+    snd_pcm_t *handle = NULL;
+    int period_size = 0;
+    int period_time = 0;
+    char my_samples[SAMPLE_BUFFER_SIZE];
+
+    // setup stuff...
+
+    // Prepare codec for output
+    snd_pcm_drop(handle); // Just to be sure...
+    snd_pcm_prepare(handle);
+
+    // ALSA gods demand their buffers to be prefilled with 2 period sizes!
+	snd_pcm_non_block(handle, 0);
+    snd_pcm_writei(handle, my_samples, AUDIO_NR_OF_SAMPLES);
+    snd_pcm_writei(handle, my_samples, AUDIO_NR_OF_SAMPLES);
+	snd_pcm_non_block(handle, 1);
+
+    // Codec is started after this
+    snd_pcm_state(handle) == SND_PCM_STATE_RUNNING;
+
+    // Do our thing...
+    while(1) {
+        int error = snd_pcm_writei(handle, my_samples, AUDIO_NR_OF_SAMPLES);
+		if (error == -EAGAIN) {
+		    sleep(100);
+			continue;
+		}
+        if (error < 0) {
+            // xrun recovery
+			int recover = snd_pcm_recover(handle, error, 1);
+			if (recover < 0) {
+			    // all hope is lost....
+			}
+			// After recovery, need to prefill codec again!
+            snd_pcm_writei(handle, my_samples, AUDIO_NR_OF_SAMPLES);
+            snd_pcm_writei(handle, my_samples, AUDIO_NR_OF_SAMPLES);
+        }
+    }
+}
+```
+
+|||
+#### Async
+  * 'Microcontroller'-way (patent pending)
+  * Seems natural/elegant
+    * Why let us do the waiting when ALSA can just inform us when it wants samples?
+  * Uses SIGIO by default
+    * Wizards can redefine it to a realtime signal (actual quote from ALSA docs...)
+  * ALSA Driver has to raise the signal
+    * So it's not supported by a lot of drivers
+    * Can conflict with other modules/libraries/... using the same signal
+	  * Hence, you have to be a wizard to get it working
+
+|||
+#### Async
+* Not very stable...
+  * Seems confirmed by the fact that nobody seems to use it
+  * Big players (PulseAudio/JACK/PortAudio) don't use it
+* My offficial recommendation: don't use it if you want to maintain your sanity...
+
+|||
+#### Async
+```c
+int main(int argc, char **argv)
+{
+//TODO
+}
+```
+
+|||
+#### Polling
+  * Closest to the async model and still managable/stable
+  * We ask ALSA for file descriptors of the audio device we can poll
+  * Sweet!
+   * No need for sleeps, waiting, ....
+
+|||
+#### Polling
+Oh you naive fool....
+  * ALSA can generate 'NULL' events
+    * Yes, stated by their official documentation...
+  * So your thread is always waking up and checking for null events
+  * You still have to throttle the thread/poll yourself....
+
+|||
+#### Polling
+```c
+int main(int argc, char **argv)
+{
+//TODO
+}
+```
+
+|||
+#### ALSA quirks
+* alsa-lib startup behaviour for output devices
+  * Need to be prefilled with 2 * period_size
+  * Just because
+  * If not... xrun after a while
+* Maintain handshake with library
+  * Get state from pcm handle
+  * Depending on that state, do stuff
+    * recover from xrun
+	* prepare again after xrun
+	* prefill before writing your own audio!
+  * https://www.alsa-project.org/alsa-doc/alsa-lib/pcm.html
+
+---
+## Complex usecase
+Several devices
+
+|||
+## Blocking
+Extrapolate the blocking usecase
+* 1 device == 1 thread
+* Simple
+* But resource heavy....
+  * f.e. 8 Audio devices, full duplex (playback and recording)
+  * 8 devices x 2 threads = 16!
+
+|||
+#### Blocking
+```c
+int main(int argc, char **argv)
+{
+//TODO
+}
+```
+
+|||
+## Polling
+* Bookkeeping
+  * Figuring out which device generated event
+* One device can influence others
+  * If one device takes too long writing/reading,
+    the others can experience xrun
+* But, this seems to be the only stable/flexible way to handle multiple alsa devices in a performance/resource-friendly way.
+
+|||
+#### Polling
+```c
+int main(int argc, char **argv)
+{
+//TODO
+}
+```
+
+---
+## Tips and tricks
+* Thread safety
+  * Opening audio devices is thread safe and returns a handle
+  * User is responsible for serializing acces to handle-related functions
+    * So you have to provide your own locking scheme if handle is shared!
+  * Standalone (non-handle) functions are thread safe though
+* Disable multi-thread support at runtime
+  * LIBASOUND_THREAD_SAFE=0
+* Check the official examples
+  * The API doesn't work as you would think it works
+* Check alsa-utils
+
+|||
+## Tips and tricks
+* Check alsa-mixer for volume control implementation
+  * Human ear is an a-hole
+* Check PortAudio/PulseAudio/JACK/...
+  * Not just for 'code ideas'
+  * You can use them iso ALSA
+    * But check performance impact
+* Useful tools
+  * aplay
+    * list all devices: aplay -l
+    * list configuration of device: aplay -v
+* Some functions are notorious for not being stable
+  * snd_pcm_drain
+	* Comment in PortAudio:src/hostapi/alsa/pa_linux_alsa.c:AlsaStop: "snd_pcm_drain can hang forever."
+	* Commit from 2013...
+
+|||
+## Tips and tricks
+* ALSA output devices startup behaviour
+  * Need to be prefilled with 2 * period_size
+  * Just because
+  * If not... xrun after a while
+* Configured audio devices
+  * /proc/asound/cards
+* State of sound devices stored persistently
+  * Alsa-utils
+  * /var/lib/alsa/asound.state
+  * Can be disabled
+
+
+|||
+## Future stuff
+ALSA/alsa-lib introduced usecase managers
+* Headset
+* Speakers
+* Microphone
+* ...
+
+Used in Ubuntu Touch (Nexus 7)
+* Ability to set actions
+  * EnableSpeakers
+  * DisableMicrophone
+
+
+---
+## Sources
+* Wiki https://alsa-project.org/wiki
+  * Contains a lot of dead links
+  * Mostly replaced with kernel info (see below)
+* Unofficial wiki https://alsa.opensrc.org/
+  * Is more honest about stuff that is broken etc.
+* Kernel info https://www.kernel.org/doc/html/v4.17/sound/index.html
+  * Writing an ALSA driver https://www.kernel.org/doc/html/v4.17/sound/kernel-api/writing-an-alsa-driver.html
+
+
+|||
+## Sources
+* Some guy that also struggled http://www.volkerschatz.com/noise/alsa.html
+* Sample programs http://equalarea.com/paul/alsa-audio.html
+* alsa-lib doxygen https://www.alsa-project.org/alsa-doc/alsa-lib/
+  * Handshake between app and lib https://www.alsa-project.org/alsa-doc/alsa-lib/pcm.html
+* Arch is the best wiki ever https://wiki.archlinux.org/index.php/Advanced_Linux_Sound_Architecture
