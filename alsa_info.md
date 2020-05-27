@@ -49,7 +49,7 @@ Userspace ALSA
 * Replaced OSS completely in v2.6
   * There is however still a compatibility layer in ALSA
   * But as you might have guessed, nobody uses it (anymore)
-* OSS is still being developed though!
+* OSS is still being maintained
   * Targetting Linux and FreeBSD
 
 |||
