@@ -309,7 +309,10 @@ Here we restrict the device's hardware parameter space
   * Play on 6 channels
   * Set the samplerate to 96kHz
 
-Important: Anything that can be set through the ALSA PCM API can be set in the config file!
+Important:
+  * Anything that can be set through the ALSA PCM API can be set in the config file!
+  * If you put an unsupported setting in this config, you won't get any errors in your program....
+    * Just some errors about samplerate, ... in dmesg
 
 |||
 ### ALSA mysteries
@@ -411,19 +414,23 @@ Ok, but how do I know what params are actually set?!
 
 |||
 ## Several ways to tackle this
-* Blocking
-* Non-blocking
+
+* Synchronous
 * Asynchronous
 * Polling
 
+In each of these, we can chose two modes:
+* Blocking API
+* Non-blocking API
+
 |||
-#### Blocking
+#### Synchronous
 * one thread per device
   * capture and playback are two separate devices!
 * Results in two threads
 
 |||
-#### Blocking
+#### Synchronous blocking
 
 ```c
 #define AUDIO_SAMPLERATE           16000
@@ -498,7 +505,7 @@ int main(int argc, char **argv)
 ```
 
 |||
-#### Non-Blocking
+#### Synchronous non-blocking
 
 * Same as blocking
 * Functions return new error codes
@@ -507,7 +514,7 @@ int main(int argc, char **argv)
   * -EAGAIN if buffers are full
 
 |||
-#### Non-Blocking
+#### Synchronous non-blocking
 ```c
 #define AUDIO_SAMPLERATE           16000
 
@@ -554,7 +561,7 @@ int main(int argc, char **argv)
 ```
 
 |||
-#### Async
+#### Asynchronous
   * 'Microcontroller'-way (patent pending)
   * Seems natural/elegant
     * Why let us do the waiting when ALSA can just inform us when it wants samples?
@@ -566,14 +573,14 @@ int main(int argc, char **argv)
 	  * Hence, you have to be a wizard to get it working
 
 |||
-#### Async
+#### Asynchronous
 * Not very stable...
   * Seems confirmed by the fact that nobody seems to use it
   * Big players (PulseAudio/JACK/PortAudio) don't use it
 * My official recommendation: don't use it if you want to maintain your sanity...
 
 |||
-#### Async
+#### Asynchronous
 ```c
 #define AUDIO_SAMPLERATE           16000
 
@@ -752,6 +759,7 @@ int main(int argc, char **argv)
   * Sounds logical...
   * ...However, ALSA will allow to let you define f.e. 48kHz on input and 16kHz on output
   * Even though this isn't possible due to HW constraints (it's the same device!)
+
 ---
 ## Complex usecase
 Several devices
