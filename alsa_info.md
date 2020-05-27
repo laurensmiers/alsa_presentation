@@ -570,7 +570,7 @@ int main(int argc, char **argv)
 * Not very stable...
   * Seems confirmed by the fact that nobody seems to use it
   * Big players (PulseAudio/JACK/PortAudio) don't use it
-* My offficial recommendation: don't use it if you want to maintain your sanity...
+* My official recommendation: don't use it if you want to maintain your sanity...
 
 |||
 #### Async
@@ -620,7 +620,7 @@ int main(int argc, char **argv)
     // setup rest of stuff...
 
     // Install callback
-    snd_pcm_add_pcm_handler(&async_handle, handle, my_signal_callback, NULL);
+    snd_pcm_add_pcm_handler(&async_handle, handle, my_signal_callback, my_priv_data);
 
     // Prepare codec for output
     snd_pcm_drop(handle); // Just to be sure...
@@ -644,6 +644,7 @@ int main(int argc, char **argv)
 #### Polling
   * Closest to the async model and still managable/stable
   * We ask ALSA for file descriptors of the audio device we can poll
+    * Depending on Playback/Recording, poll returns POLLOUT/POLLIN
   * Sweet!
    * No need for sleeps, waiting, ....
 
