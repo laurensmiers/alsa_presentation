@@ -56,9 +56,10 @@ Userspace ALSA
 ## Who uses it?
   * Linux Sound Servers
     * PulseAudio
-    * Jack
+    * JACK
   * PortAudio
     * Backbone of Audacity
+  * PipeWire
 
 ---
 # Why?
@@ -97,6 +98,8 @@ But it's still a lot of hassle   <!-- .element: class="fragment" data-fragment-i
 * Changing settings on the fly
   * sample format
   * channel count
+* Virtual audio devices
+  * ALSA devices are linked to a real HW device
 
 |||
 ## Why use X over ALSA
@@ -147,7 +150,7 @@ Alsa uses *.conf files to configure sound devices
   * Device string is the 'absolute' path of the device
     * card,device[subdevice]
   * aplay utility can list all pcm devices
-    * aplay -l
+    * aplay -L
 
 |||
 ### Configuration
@@ -322,7 +325,7 @@ Important: Anything that can be set through the ALSA PCM API can be set in the c
 
 |||
 ## Some interesting stuff
-Exlamation sign causes previous definition to be overridden
+Exclamation sign causes previous definition to be overridden
 ```
 pcm.!default { type hw card 0 }
 ```
@@ -666,7 +669,8 @@ int main(int argc, char **argv)
 * alsa-lib startup behaviour for output devices
   * Need to be prefilled with 2 * period_size
   * Just because
-  * If not... xrun after a while
+  * If not... xrun after a while...without them being reported in your app
+    * Errors in dmesg
 * Maintain handshake with library
   * Get state from pcm handle
   * Depending on that state, do stuff
@@ -674,7 +678,10 @@ int main(int argc, char **argv)
 	* prepare again after xrun
 	* prefill before writing your own audio!
   * https://www.alsa-project.org/alsa-doc/alsa-lib/pcm.html
-
+* Input/output settings linked to each other on same device
+  * Sounds logical...
+  * ...However, ALSA will allow to let you define f.e. 48kHz on input and 16kHz on output
+  * Even though this isn't possible due to HW constraints (it's the same device!)
 ---
 ## Complex usecase
 Several devices
@@ -791,3 +798,4 @@ Used in Ubuntu Touch (Nexus 7)
 * alsa-lib doxygen https://www.alsa-project.org/alsa-doc/alsa-lib/
   * Handshake between app and lib https://www.alsa-project.org/alsa-doc/alsa-lib/pcm.html
 * Arch is the best wiki ever https://wiki.archlinux.org/index.php/Advanced_Linux_Sound_Architecture
+* Recent ALSA examples https://github.com/OpenPixelSystems/c-alsa-examples
