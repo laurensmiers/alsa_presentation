@@ -572,9 +572,68 @@ int main(int argc, char **argv)
 |||
 #### Async
 ```c
+#define AUDIO_SAMPLERATE           16000
+
+#define AUDIO_NR_OF_SAMPLES        128u
+#define AUDIO_BYTES_PER_SAMPLE     2u
+#define AUDIO_OUTPUT_NR_CHANNELS   2u
+#define SAMPLE_BUFFER_SIZE         (AUDIO_NR_OF_SAMPLES * AUDIO_OUTPUT_NR_CHANNELS * AUDIO_BYTES_PER_SAMPLE)
+
+static void my_signal_callback(snd_async_handler_t *ahandler)
+{
+    snd_pcm_t *pcm_handle = snd_async_handler_get_pcm(ahandler);
+    void *my_priv_data = snd_async_hanlder_get_callback_private(ahandler);
+    char my_samples[SAMPLE_BUFFER_SIZE] = { 0 };
+
+    snd_pcm_sframes_t avail = 0;
+
+    avail = snd_pcm_avail_update(pcm_handle);
+
+    if (avail < 0) {
+        // xrun recovery
+    }
+
+    while (avail >= AUDIO_NR_SAMPLES) {
+        snd_pcm_writei(pcm_handle, my_samples, AUDIO_NR_SAMPLES);
+        avail = snd_pcm_avail_update(pcm_handle);
+		// xrun checking...
+    }
+}
+
 int main(int argc, char **argv)
 {
-//TODO
+    snd_pcm_t *handle = NULL;
+    snd_async_handler_t *async_handle = NULL;
+    void *my_priv_data = NULL;
+    int period_size = 0;
+    int period_time = 0;
+    char my_samples[SAMPLE_BUFFER_SIZE];
+
+    // Open pcm, non-blocking or blocking, your choice
+    snd_pcm_open(&handle, "default:CARD=MyAwesomeAudioCard", SND_PCM_STREAM_PLAYBACK, 0);
+    // Just... for the love of god.... don't use SND_PCM_ASYNC!!!
+    // snd_pcm_open(&handle, "default:CARD=MyAwesomeAudioCard", SND_PCM_STREAM_PLAYBACK, SND_PCM_ASYNC);
+
+    // setup rest of stuff...
+
+    // Install callback
+    snd_pcm_add_pcm_handler(&async_handle, handle, my_signal_callback, NULL);
+
+    // Prepare codec for output
+    snd_pcm_drop(handle); // Just to be sure...
+    snd_pcm_prepare(handle);
+
+    // ALSA gods demand their buffers to be prefilled with 2 period sizes!
+    snd_pcm_writei(handle, my_samples, AUDIO_NR_OF_SAMPLES);
+    snd_pcm_writei(handle, my_samples, AUDIO_NR_OF_SAMPLES);
+
+    // Codec is started after this
+    snd_pcm_state(handle) == SND_PCM_STATE_RUNNING;
+
+    while(1) {
+        // everything is handled in callback
+        sleep(100);
+    }
 }
 ```
 
