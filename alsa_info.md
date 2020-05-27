@@ -658,10 +658,79 @@ Oh you naive fool....
 
 |||
 #### Polling
+
 ```c
+#include <stdio.h>
+#include <alsa/asoundlib.h>
+
+#define AUDIO_SAMPLERATE           16000
+
+#define AUDIO_NR_OF_SAMPLES        128u
+#define AUDIO_BYTES_PER_SAMPLE     2u
+#define AUDIO_OUTPUT_NR_CHANNELS   2u
+#define SAMPLE_BUFFER_SIZE         (AUDIO_NR_OF_SAMPLES * AUDIO_OUTPUT_NR_CHANNELS * AUDIO_BYTES_PER_SAMPLE)
+
+#define PERIOD_SIZE_US             8000u
+
 int main(int argc, char **argv)
 {
-//TODO
+    int error = 0;
+    struct pollfd *ufds = NULL;
+    snd_pcm_t *pcm_handle = NULL;
+    int poll_fd_count = 0;
+    char my_samples[SAMPLE_BUFFER_SIZE] = { 0 };
+    int revents = 0;
+
+    snd_pcm_open(&pcm_handle, "default:CARD=MyAwesomeAudioCard", SND_PCM_STREAM_PLAYBACK, 0);
+
+	// default setup stuff here....
+
+    // Set start value
+    if (err < snd_pcm_sw_params_set_avail_min(handle, swparams, period_size)) {
+        printf("Unable to set avail min for playback: %s\n", snd_strerror(err));
+        return err;
+    }
+
+    // Enable poll event
+    err = snd_pcm_sw_params_set_period_event(handle, swparams, 1);
+    if (err < 0) {
+        printf("Unable to set period event: %s\n", snd_strerror(err));
+        return err;
+    }
+
+    // Set SW params
+    if ((err = snd_pcm_sw_params(handle, swparams)) < 0) {
+        printf("ERROR: Can't set software parameters. %s\n", snd_strerror(err));
+        return err;
+    }
+
+    // Get number of file descriptors (can be more than 1, depends on driver)
+    poll_fd_count = snd_pcm_poll_descriptors_count(pcm_handle);
+
+    // Get the actual file descriptors
+    ufds = malloc(sizeof(*ufds) * poll_fd_count);
+    snd_pcm_poll_descriptors(pcm_handle, ufds, poll_fd_count);
+
+    // start device
+    snd_pcm_start(pcm_handle);
+
+    while (1) {
+        poll(ufds, poll_fd_count, -1);
+        snd_pcm_poll_descriptors_revents(pcm_handle, ufds, poll_fd_count, &revents);
+        if (revents & POLLERR) {
+            // All hope is lost...
+        } else if (revents & POLLOUT) {
+            error = snd_pcm_writei(pcm_handle, my_samples, AUDIO_NR_OF_SAMPLES);
+            if (error < 0) {
+                // xrun recovery
+            }
+        }
+
+		// Throttle our thread...
+		usleep(PERIOD_SIZE_US / 2)
+    }
+
+    return 0;
 }
 ```
 
@@ -707,10 +776,265 @@ Extrapolate the blocking usecase
 
 |||
 #### Polling
+
 ```c
+#include <stdio.h>
+#include <stdlib.h>
+#include <unistd.h>
+#include <time.h>
+#include <pthread.h>
+
+#include <alsa/asoundlib.h>
+#include <alloca.h>
+
+#define AUDIO_NR_OF_SAMPLES     128u
+#define AUDIO_BYTES_PER_SAMPLE  2u
+#define AUDIO_NR_OF_CHANNELS    2u
+#define SAMPLE_BUFFER_SIZE      (AUDIO_NR_OF_SAMPLES * AUDIO_NR_OF_CHANNELS * AUDIO_BYTES_PER_SAMPLE)
+
+static char *device_names[] = {
+	"sysdefault:CARD=AudioBoard00",
+	"sysdefault:CARD=AudioBoard01",
+	"sysdefault:CARD=AudioBoard02",
+	"sysdefault:CARD=AudioBoard03",
+	"sysdefault:CARD=AudioBoard04",
+	"sysdefault:CARD=AudioBoard05",
+	"sysdefault:CARD=AudioBoard06",
+	"sysdefault:CARD=AudioBoard07",
+};
+
+#define NR_OF_DEVICES (sizeof(device_names)/sizeof(*device_names))
+
+static void *read_thread_func(void *cookie)
+{
+	int error = 0;
+
+    struct pollfd *ufds = NULL;
+	snd_pcm_t *pcm_handles[NR_OF_DEVICES];
+	int poll_fd_count[NR_OF_DEVICES] = { 0 };
+	int total_poll_fd_count = 0;
+	int poll_fd_count_offset[NR_OF_DEVICES] = { 0 };
+
+	for (int i = 0; i< NR_OF_DEVICES; ++i) {
+		if (snd_pcm_open(&pcm_handles[i], device_names[i], SND_PCM_STREAM_CAPTURE, 0) < 0) {
+			printf("Failed to open device '%s'\n", device_names[i]);
+			goto _free_resources;
+		}
+
+        // setup hw/sw params of alsa device...
+
+		poll_fd_count[i] = snd_pcm_poll_descriptors_count(pcm_handles[i]);
+		if (poll_fd_count[i] <= 0) {
+			printf("Invalid poll descriptors count for device '%s'\n", device_names[i]);
+			goto _free_resources;
+		}
+
+		total_poll_fd_count += poll_fd_count[i];
+	}
+
+	ufds = malloc(sizeof(*ufds) * total_poll_fd_count);
+	if (ufds == NULL) {
+		printf("Not enough memory\n");
+		goto _free_resources;
+	}
+	memset(ufds, 0, sizeof(*ufds) * total_poll_fd_count);
+
+    for (int i = 1; i < NR_OF_DEVICES; ++i) {
+	    for (int j = 0; j < i; j++) {
+		    poll_fd_count_offset[i] += poll_fd_count[j];
+		}
+    }
+
+	/* Get poll file descriptors */
+    for (int i = 0; i< NR_OF_DEVICES; ++i) {
+    	if ((error = snd_pcm_poll_descriptors(pcm_handles[i], ufds + poll_fd_count_offset[i], poll_fd_count[i])) < 0) {
+			printf("Unable to obtain poll descriptors for playback: %s\n", snd_strerror(error));
+			goto _free_resources;
+		}
+	}
+
+	/* Start readers */
+	for (int i = 0; i < NR_OF_DEVICES; i++) {
+        if (snd_pcm_start(pcm_handles[i]) < 0) {
+            printf("Failed to start pcm '%s'", device_names[i]);
+            goto _free_resources;
+        }
+    }
+
+    char black_hole[SAMPLE_BUFFER_SIZE] = {0};
+
+	while (1) {
+		unsigned short revents = 0;
+
+		poll(ufds, total_poll_fd_count, -1);
+
+		for (int i = 0; i < NR_OF_DEVICES; i++) {
+			revents = 0;
+			snd_pcm_poll_descriptors_revents(pcm_handles[i], ufds + poll_fd_count_offset[i], poll_fd_count[i], &revents);
+			if (revents & POLLERR) {
+				printf("ERROR:Failed to poll device %s\n", device_names[i]);
+				break;
+			} else if (revents & POLLIN) {
+				error = snd_pcm_readi(pcm_handles[i], black_hole, AUDIO_NR_OF_SAMPLES);
+				if (error < 0) {
+				    // xrun recovery
+				}
+			}
+		}
+	}
+
+	printf("Reader done...\n");
+
+	for (int i = 0; i < NR_OF_DEVICES; ++i) {
+		snd_pcm_drop(pcm_handles[i]);
+		snd_pcm_close(pcm_handles[i]);
+	}
+
+_free_resources:
+    // clean up your shit
+}
+
+static void *write_thread_func(void *cookie)
+{
+	int error = 0;
+    struct pollfd *ufds = NULL;
+	snd_pcm_t *pcm_handles[NR_OF_DEVICES];
+	int poll_fd_count[NR_OF_DEVICES] = { 0 };
+	int total_poll_fd_count = 0;
+	int poll_fd_count_offset[NR_OF_DEVICES] = { 0 };
+
+	for (int i = 0; i< NR_OF_DEVICES; ++i) {
+		if (snd_pcm_open(&pcm_handles[i], device_names[i], SND_PCM_STREAM_PLAYBACK, 0) < 0) {
+			printf("Failed to open device '%s'\n", device_names[i]);
+			goto _free_resources;
+		}
+
+		// setup hw/sw params
+
+		poll_fd_count[i] = snd_pcm_poll_descriptors_count(pcm_handles[i]);
+		if (poll_fd_count[i] <= 0) {
+			printf("Invalid poll descriptors count for device '%s'\n", device_names[i]);
+			goto _free_resources;
+		}
+
+		total_poll_fd_count += poll_fd_count[i];
+	}
+
+	ufds = malloc(sizeof(*ufds) * total_poll_fd_count);
+	if (ufds == NULL) {
+		printf("Not enough memory\n");
+		goto _free_resources;
+	}
+	memset(ufds, 0, sizeof(*ufds) * total_poll_fd_count);
+
+    for (int i = 1; i < NR_OF_DEVICES; ++i) {
+		for (int j = 0; j < i; j++) {
+			poll_fd_count_offset[i] += poll_fd_count[j];
+        }
+    }
+
+	/* Get poll file descriptors */
+    for (int i = 0; i< NR_OF_DEVICES; ++i) {
+		if ((error = snd_pcm_poll_descriptors(pcm_handles[i], ufds + poll_fd_count_offset[i], poll_fd_count[i])) < 0) {
+			printf("Unable to obtain poll descriptors for playback: %s\n", snd_strerror(error));
+			goto _free_resources;
+		}
+	}
+
+	/* Prefill */
+	for (int i = 0; i < NR_OF_DEVICES; i++) {
+		char mybuff[SAMPLE_BUFFER_SIZE * 2] = {0 };
+		if (snd_pcm_writei(pcm_handles[i], mybuff, AUDIO_NR_OF_SAMPLES * 2) < 0 ) {
+			printf("could not prefill\n");
+			goto _free_resources;
+		}
+	}
+
+	while (true) {
+		unsigned short revents = 0;
+
+		poll(ufds, total_poll_fd_count, -1);
+
+		for (int i = 0; i < NR_OF_DEVICES; i++) {
+			revents = 0;
+			snd_pcm_poll_descriptors_revents(pcm_handles[i], ufds + poll_fd_count_offset[i], poll_fd_count[i], &revents);
+			if (revents & POLLERR) {
+				printf("ERROR:Failed to poll device '%s'\n", device_names[i]);
+
+				if (snd_pcm_state(pcm_handles[i]) == SND_PCM_STATE_XRUN ||
+				    snd_pcm_state(pcm_handles[i]) == SND_PCM_STATE_SUSPENDED) {
+					error = snd_pcm_state(pcm_handles[i]) == SND_PCM_STATE_XRUN ? -EPIPE : -ESTRPIPE;
+					if (xrun_recovery(pcm_handles[i], error) < 0) {
+						printf("Write error: %s\n", snd_strerror(error));
+						exit(EXIT_FAILURE);
+					}
+				} else {
+					LOG_ERROR("Wait for poll failed '%s'\n", device_names[i]);
+					break;
+				}
+
+
+				/* _is_writer_done = true; */
+				continue;
+			} else if (revents & POLLOUT) {
+				char *ptr = cbuffer_get_read_pointer(_loopback_buffers[i]);
+				if (!ptr) {
+					continue;
+				}
+				error = snd_pcm_writei(pcm_handles[i], ptr, AUDIO_NR_OF_SAMPLES);
+				if (error < 0) {
+					if (xrun_recovery(pcm_handles[i], error) < 0) {
+						printf("Write error: %s\n", snd_strerror(error));
+						exit(EXIT_FAILURE);
+					}
+					break;
+				} else {
+					/* printf("%d: Written %d samples in device %s\n", ++count, error, device_names[i]); */
+				}
+				cbuffer_signal_element_read(_loopback_buffers[i]);
+			}
+		}
+	}
+
+	printf("writer done...\n");
+
+	for (int i = 0; i < NR_OF_DEVICES; ++i) {
+		snd_pcm_drain(pcm_handles[i]);
+		snd_pcm_close(pcm_handles[i]);
+	}
+
+	printf("free resources writer...\n");
+_free_resources:
+    // clean up your shit
+
+	return NULL;
+}
+
 int main(int argc, char **argv)
 {
-//TODO
+	pthread_t write_thread;
+	pthread_t read_thread;
+	int error = 0;
+
+	printf("Start playback/record with following devices:\n");
+	for (int i = 0; i < NR_OF_DEVICES; ++i) {
+		printf("%s\n", device_names[i]);
+	}
+
+    if (pthread_create(&read_thread, NULL, read_thread_func, NULL) < 0) {
+		printf("Failed to create reader thread");
+		goto _free_resources;
+    }
+
+    if (pthread_create(&write_thread, NULL, write_thread_func, NULL) < 0) {
+        printf("Failed to create reader thread");
+		goto _free_resources;
+    }
+
+	pthread_join(write_thread, NULL);
+	pthread_join(read_thread, NULL);
+
+	return 0;
 }
 ```
 
