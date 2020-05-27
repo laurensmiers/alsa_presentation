@@ -520,17 +520,20 @@ int main(int argc, char **argv)
     int period_time = 0;
     char my_samples[SAMPLE_BUFFER_SIZE];
 
-    // setup stuff...
+    // Open PCM in non-blocking
+    snd_pcm_open(&handle, "default:CARD=MyAwesomeAudioCard", SND_PCM_STREAM_PLAYBACK, SND_PCM_NONBLOCK);
+
+    // setup rest of stuff...
 
     // Prepare codec for output
     snd_pcm_drop(handle); // Just to be sure...
     snd_pcm_prepare(handle);
 
     // ALSA gods demand their buffers to be prefilled with 2 period sizes!
-	snd_pcm_non_block(handle, 0);
+	snd_pcm_non_block(handle, 0); // We want to block for the prefill
     snd_pcm_writei(handle, my_samples, AUDIO_NR_OF_SAMPLES);
     snd_pcm_writei(handle, my_samples, AUDIO_NR_OF_SAMPLES);
-	snd_pcm_non_block(handle, 1);
+	snd_pcm_non_block(handle, 1); // get back to non-blocking
 
     // Codec is started after this
     snd_pcm_state(handle) == SND_PCM_STATE_RUNNING;
@@ -542,16 +545,7 @@ int main(int argc, char **argv)
 		    sleep(100);
 			continue;
 		}
-        if (error < 0) {
-            // xrun recovery
-			int recover = snd_pcm_recover(handle, error, 1);
-			if (recover < 0) {
-			    // all hope is lost....
-			}
-			// After recovery, need to prefill codec again!
-            snd_pcm_writei(handle, my_samples, AUDIO_NR_OF_SAMPLES);
-            snd_pcm_writei(handle, my_samples, AUDIO_NR_OF_SAMPLES);
-        }
+		// xrun recovery stuff
     }
 }
 ```
