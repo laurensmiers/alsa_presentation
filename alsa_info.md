@@ -697,15 +697,6 @@ Extrapolate the blocking usecase
   * 8 devices x 2 threads = 16!
 
 |||
-#### Blocking
-```c
-int main(int argc, char **argv)
-{
-//TODO
-}
-```
-
-|||
 ## Polling
 * Bookkeeping
   * Figuring out which device generated event
