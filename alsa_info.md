@@ -34,11 +34,11 @@ Userspace ALSA
 ## What?
 * Automatic configuration of sound devices
   * Through the infamous /usr/share/alsa/cards/*.conf
-  * Modularized sound drivers
-  * Thread-safe* design
-  * User space library (alsa-lib) to simplify programming
-    * This is the one we will be using today
-  * Backwards compatibility layer with OSS
+* Modularized sound drivers
+* Thread-safe* design
+* User space library (alsa-lib) to simplify programming
+  * This is the one we will be using today
+* Backwards compatibility layer with OSS
 
 |||
 ## History
