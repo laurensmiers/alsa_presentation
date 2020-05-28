@@ -384,6 +384,10 @@ Not as easy as just setting them one by one   <!-- .element: class="fragment" da
 * Constructs a configuration space
 * PCM parameters are not independent from each other for some sound cards
   * Cannot combine all sample formats with all sampling rates or channel counts
+  * Depends on minimum interrupt 'tick' of HW device
+    * Scenario: device supports max X bytes per period to be retrieved
+	* Increase the sample size
+	* In order to adhere to the X bytes, ALSA decreases the max possible supported samplerate
 
 |||
 ## PCM configuration
