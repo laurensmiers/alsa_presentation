@@ -749,16 +749,14 @@ int main(int argc, char **argv)
 #### ALSA quirks
 * alsa-lib startup behaviour for output devices
   * Need to be prefilled with 2 * period_size
-  * Just because
   * If not... xrun after a while...without them being reported in your app
     * Errors in dmesg
 * Maintain handshake with library
   * Get state from pcm handle
-  * Depending on that state, do stuff
-    * recover from xrun
-	* prepare again after xrun
-	* prefill before writing your own audio!
-  * https://www.alsa-project.org/alsa-doc/alsa-lib/pcm.html
+  * xrun?
+    * call recover
+	* prepare again
+	* prefill before writing your own audio when using a playback device!
 * Input/output settings linked to each other on same device
   * Sounds logical...
   * ...However, ALSA will allow to let you define f.e. 48kHz on input and 16kHz on output
