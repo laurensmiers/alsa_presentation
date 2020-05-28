@@ -1052,6 +1052,9 @@ int main(int argc, char **argv)
 
 ---
 ## Tips and tricks
+
+### Threading
+
 * Thread safety
   * Opening audio devices is thread safe and returns a handle
   * User is responsible for serializing acces to handle-related functions
@@ -1059,18 +1062,28 @@ int main(int argc, char **argv)
   * Standalone (non-handle) functions are thread safe though
 * Disable multi-thread support at runtime
   * LIBASOUND_THREAD_SAFE=0
-* Check the official examples
-  * The API doesn't work as you would think it works
-* Check alsa-utils
 
 |||
 ## Tips and tricks
+
+### Where to get.... 'ideas'
+
+* Check the official examples
+  * The API doesn't work as you would expect
+* Check alsa-utils
+  * Contains more examples than listed on their doxygen website
 * Check alsa-mixer for volume control implementation
   * Human ear is an a-hole
 * Check PortAudio/PulseAudio/JACK/...
   * Not just for 'code ideas'
   * You can use them iso ALSA
     * But check performance impact
+
+|||
+## Tips and tricks
+
+#### Why doesn't X work?
+
 * Useful tools
   * aplay
     * list all devices: aplay -l
@@ -1079,22 +1092,13 @@ int main(int argc, char **argv)
   * snd_pcm_drain
 	* Comment in PortAudio:src/hostapi/alsa/pa_linux_alsa.c:AlsaStop: "snd_pcm_drain can hang forever."
 	* Commit from 2013...
-
-|||
-## Tips and tricks
-* ALSA output devices startup behaviour
-  * Need to be prefilled with 2 * period_size
-  * Just because
-  * If not... xrun after a while
 * Configured audio devices
   * /proc/asound/cards
-* State of sound devices stored persistently
-  * Alsa-utils
+* State of sound devices stored persistently by alsa-utils
   * /var/lib/alsa/asound.state
   * Can be disabled
 
-
-|||
+---
 ## Future stuff
 ALSA/alsa-lib introduced usecase managers
 * Headset
